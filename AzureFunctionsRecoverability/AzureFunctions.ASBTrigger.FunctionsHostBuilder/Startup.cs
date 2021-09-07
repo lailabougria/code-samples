@@ -35,11 +35,6 @@ public class Startup : FunctionsStartup
             endpointConfig.AdvancedConfiguration.EnableFeature<GrabMessageSessionFeature>();
             endpointConfig.AdvancedConfiguration.Recoverability().Delayed(settings => settings.NumberOfRetries(MaxImmediateRetries));
             endpointConfig.AdvancedConfiguration.Recoverability().Immediate(settings => settings.NumberOfRetries(MaxDelayedRetries));
-            // endpointConfig.AdvancedConfiguration.Recoverability().Failed(settings => settings.OnMessageSentToErrorQueue(failedMsg =>
-            // {
-            //     GrabMessageSessionFeature.Session?.Publish<ISomethingFailedEvent>(ev => ev.Whathappened = failedMsg.Exception.Message);
-            //     return Task.CompletedTask;
-            // }));
             endpointConfig.AdvancedConfiguration.Recoverability().CustomPolicy(RecoverabilityPolicy);
             return endpointConfig;
         });
@@ -47,16 +42,13 @@ public class Startup : FunctionsStartup
 
     RecoverabilityAction RecoverabilityPolicy(RecoverabilityConfig config, ErrorContext context)
     {
-        if (context.ImmediateProcessingFailures == MaxImmediateRetries && context.DelayedDeliveriesPerformed == MaxDelayedRetries) // retries depleted
+        var recoverabilityAction = DefaultRecoverabilityPolicy.Invoke(config, context);
+        if (recoverabilityAction is MoveToError)
         {
-            GrabMessageSessionFeature.Session?.Publish<ISomethingFailedEvent>(ev => ev.Whathappened = context.Exception.Message);
-            return RecoverabilityAction.Discard("Retries depleted");
+            return RecoverabilityAction.MoveToError("specific-error-queue");
         }
 
-        if (context.ImmediateProcessingFailures < MaxImmediateRetries)
-            return RecoverabilityAction.ImmediateRetry();
-        
-        return RecoverabilityAction.DelayedRetry(TimeSpan.FromSeconds(DelayTime));
+        return recoverabilityAction;
     }
 
     const double DelayTime = 1;
